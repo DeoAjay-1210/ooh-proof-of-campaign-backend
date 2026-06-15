@@ -491,6 +491,15 @@ const getHoardingList = async (req, res, next) => {
       );
     }
 
+    /*
+      Important:
+      baseQuery should NOT include active/inactive status.
+      It should include only city, mediaType, search filters.
+      So summary counts remain same for:
+      - status=all
+      - status=active
+      - status=inactive
+    */
     const baseQuery = buildHoardingFilterQuery({
       city,
       mediaType,
@@ -508,34 +517,65 @@ const getHoardingList = async (req, res, next) => {
       status: "inactive"
     };
 
+    /*
+      Always calculate total counts.
+      This fixes:
+      /api/hoardings/list?status=active&page=1&limit=10
+
+      Summary will still show:
+      totalRecords: 96
+      activeTotal: 93
+      inactiveTotal: 3
+    */
+    const [activeTotal, inactiveTotal] = await Promise.all([
+      Hoarding.countDocuments(activeQuery),
+      Hoarding.countDocuments(inactiveQuery)
+    ]);
+
     let activeItems = [];
     let inactiveItems = [];
-    let activeTotal = 0;
-    let inactiveTotal = 0;
 
+    /*
+      Fetch list items based on selected status only.
+      - all: fetch active + inactive
+      - active: fetch active only
+      - inactive: fetch inactive only
+    */
     if (normalizedStatus === "all" || normalizedStatus === "active") {
-      [activeItems, activeTotal] = await Promise.all([
-        Hoarding.find(activeQuery)
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limitNumber)
-          .lean(),
-        Hoarding.countDocuments(activeQuery)
-      ]);
+      activeItems = await Hoarding.find(activeQuery)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNumber)
+        .lean();
     }
 
     if (normalizedStatus === "all" || normalizedStatus === "inactive") {
-      [inactiveItems, inactiveTotal] = await Promise.all([
-        Hoarding.find(inactiveQuery)
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limitNumber)
-          .lean(),
-        Hoarding.countDocuments(inactiveQuery)
-      ]);
+      inactiveItems = await Hoarding.find(inactiveQuery)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNumber)
+        .lean();
     }
 
     const totalRecords = activeTotal + inactiveTotal;
+
+    /*
+      These are page-wise possible returned counts for summary.
+      This keeps summary same even when status=active/inactive.
+      Example:
+      activeTotal = 93, inactiveTotal = 3, page=1, limit=10
+      activeReturned = 10
+      inactiveReturned = 3
+    */
+    const activeReturned = Math.max(
+      Math.min(activeTotal - skip, limitNumber),
+      0
+    );
+
+    const inactiveReturned = Math.max(
+      Math.min(inactiveTotal - skip, limitNumber),
+      0
+    );
 
     return successResponse(
       res,
@@ -555,8 +595,8 @@ const getHoardingList = async (req, res, next) => {
           totalRecords,
           activeTotal,
           inactiveTotal,
-          activeReturned: activeItems.length,
-          inactiveReturned: inactiveItems.length
+          activeReturned,
+          inactiveReturned
         },
         active: {
           total: activeTotal,
