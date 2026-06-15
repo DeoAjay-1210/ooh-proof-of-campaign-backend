@@ -1,3 +1,6 @@
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '1.1.1.1']); //Added For IP Whitelisting 
+
 const mongoose = require("mongoose");
 
 const connectDB = async () => {
