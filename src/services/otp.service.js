@@ -3,6 +3,10 @@ const bcrypt = require("bcryptjs");
 const Otp = require("../models/otp.model");
 const { sendOtpSms } = require("./sms.service");
 
+const isProduction = () => {
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+};
+
 const generateOtpCode = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
@@ -26,7 +30,7 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
     }
   );
 
-  await Otp.create({
+  const otpRecord = await Otp.create({
     mobileNumber,
     userType,
     otpHash,
@@ -34,12 +38,33 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
     metadata
   });
 
-  await sendOtpSms({ mobileNumber, otp });
+  try {
+    /*
+      Register and login flows both call only this function.
+      This function handles real SMS in production and testing OTP in non-production.
+    */
+   console.log("sdfdsf");
+    await sendOtpSms({ mobileNumber, otp });
+  } catch (error) {
+    /*
+      If SMS fails in production, do not leave a usable OTP in database.
+      This avoids a user being asked to enter an OTP they never received.
+    */
+    otpRecord.isUsed = true;
+    await otpRecord.save();
 
-  return {
-    otpForTesting: process.env.NODE_ENV === "production" ? undefined : otp,
+    throw error;
+  }
+
+  const response = {
     expiresInMinutes: expiryMinutes
   };
+
+  if (!isProduction()) {
+    response.otpForTesting = otp;
+  }
+
+  return response;
 };
 
 const verifyOtpCode = async ({ mobileNumber, userType, otp }) => {

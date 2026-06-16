@@ -24,21 +24,6 @@ const cleanEmail = (value) => {
   return value ? String(value).trim().toLowerCase() : "";
 };
 
-/*
-  Important login timestamp rule:
-
-  The dashboard should show the user's previous login timestamp,
-  not the timestamp of the login that is happening right now.
-
-  So we maintain two fields:
-  - lastLoginAt: previous successful login timestamp shown in profile/dashboard.
-  - currentLoginAt: current successful login timestamp stored for the next login.
-
-  Backward compatibility:
-  If old users already have only lastLoginAt from the older implementation,
-  the first login after this update will use that old lastLoginAt as the
-  previous login snapshot, then save the new login time into currentLoginAt.
-*/
 const applyClientLoginSnapshot = async (client) => {
   const now = new Date();
 
@@ -231,10 +216,6 @@ const verifyClientRegisterOtp = async (req, res, next) => {
       }
     }
 
-    /*
-      New registration means there is no previous login yet.
-      Store currentLoginAt only. lastLoginAt remains null.
-    */
     const client = await User.create({
       fullName,
       mobileNumber: cleanedMobileNumber,
