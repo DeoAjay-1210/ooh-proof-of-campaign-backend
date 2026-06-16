@@ -47,7 +47,27 @@ const userSchema = new mongoose.Schema(
       default: null
     },
 
+    /*
+      lastLoginAt should always represent the previous successful login time.
+
+      Example:
+      - User logs in at 10:00 AM for the first time:
+        lastLoginAt = null
+        currentLoginAt = 10:00 AM
+
+      - User logs in again at 01:10 PM:
+        lastLoginAt = 10:00 AM
+        currentLoginAt = 01:10 PM
+
+      This allows the client dashboard to show the existing previous login
+      timestamp instead of the current login timestamp.
+    */
     lastLoginAt: {
+      type: Date,
+      default: null
+    },
+
+    currentLoginAt: {
       type: Date,
       default: null
     }
@@ -67,6 +87,7 @@ userSchema.methods.toSafeObject = function () {
     status: this.status,
     profileImage: this.profileImage,
     lastLoginAt: this.lastLoginAt,
+    currentLoginAt: this.currentLoginAt,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt
   };

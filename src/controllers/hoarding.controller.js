@@ -8,23 +8,50 @@ const { createHeaderMapping } = require("../utils/excelHeader.util");
 const { successResponse, errorResponse } = require("../utils/response");
 
 const requiredFields = [
-  "mediaCode",
-  "mediaName",
-  "mediaType",
   "city",
-  "location",
-  "fullAddress",
+  "mediaType",
   "widthFt",
   "heightFt"
 ];
 
 const allowedStatuses = ["active", "inactive"];
 
-const toNumber = (value) => {
-  if (value === null || value === undefined || value === "") return null;
+const dynamicFieldKeys = [
+  "areaName",
+  "quantity",
+  "illumination",
+  "displayCostPerMonth",
+  "printingCost",
+  "mountingCost",
+  "totalCost",
+  "latitude",
+  "longitude",
+  "powerSupply",
+  "innovations"
+];
 
-  const cleaned = String(value).replace(/,/g, "").trim();
-  const numberValue = Number(cleaned);
+const toCleanString = (value) => {
+  if (value === null || value === undefined) return "";
+
+  return String(value).trim();
+};
+
+const toNumber = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  const cleaned = String(value)
+    .replace(/,/g, "")
+    .replace(/₹/g, "")
+    .replace(/rs\.?/gi, "")
+    .trim();
+
+  const match = cleaned.match(/-?\d+(\.\d+)?/);
+
+  if (!match) return null;
+
+  const numberValue = Number(match[0]);
 
   return Number.isFinite(numberValue) ? numberValue : null;
 };
@@ -47,6 +74,34 @@ const escapeRegex = (value) => {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
 
+const slugifyCode = (value) => {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
+
+const buildMediaCode = ({
+  rawMediaCode,
+  city,
+  mediaType,
+  rowNumber
+}) => {
+  const cleanRawCode = toCleanString(rawMediaCode);
+  const isPlainSerial = /^[0-9]+$/.test(cleanRawCode);
+
+  if (cleanRawCode && !isPlainSerial) {
+    return slugifyCode(cleanRawCode);
+  }
+
+  const serial = cleanRawCode || String(rowNumber - 1);
+  const cityPart = slugifyCode(city || "CITY");
+  const mediaPart = slugifyCode(mediaType || "MEDIA");
+
+  return `${cityPart}-${mediaPart}-${serial}`;
+};
+
 const getCellValue = (row, mappedHeaders, fieldKey) => {
   const actualHeader = mappedHeaders[fieldKey];
 
@@ -61,32 +116,84 @@ const isEmptyRow = (row) => {
   });
 };
 
-const buildDynamicFields = (row, dynamicHeaders) => {
+const buildDynamicFields = (row, mappedHeaders, dynamicHeaders) => {
   const dynamicFields = {};
 
+  dynamicFieldKeys.forEach((fieldKey) => {
+    const rawValue = getCellValue(row, mappedHeaders, fieldKey);
+
+    if (
+      rawValue === null ||
+      rawValue === undefined ||
+      String(rawValue).trim() === ""
+    ) {
+      return;
+    }
+
+    if (
+      [
+        "quantity",
+        "displayCostPerMonth",
+        "printingCost",
+        "mountingCost",
+        "totalCost",
+        "latitude",
+        "longitude"
+      ].includes(fieldKey)
+    ) {
+      const numberValue = toNumber(rawValue);
+      dynamicFields[fieldKey] = numberValue !== null ? numberValue : rawValue;
+      return;
+    }
+
+    dynamicFields[fieldKey] = rawValue;
+  });
+
+  /*
+    Store any unknown future headers without losing data.
+    Example: owner name, remarks, facing, road type, etc.
+  */
   dynamicHeaders.forEach((header) => {
-    dynamicFields[header] = row[header];
+    const value = row[header];
+
+    if (
+      value === null ||
+      value === undefined ||
+      String(value).trim() === ""
+    ) {
+      return;
+    }
+
+    dynamicFields[header] = value;
   });
 
   return dynamicFields;
 };
 
 const validateRequiredHeaders = (mappedHeaders) => {
-  return requiredFields.filter((field) => !mappedHeaders[field]);
+  const missing = requiredFields.filter((field) => !mappedHeaders[field]);
+
+  /*
+    Latest inventory uses "Location" as the address and "Area Name" as
+    the short location/media area. At least one of these must be present.
+  */
+  if (!mappedHeaders.location && !mappedHeaders.fullAddress && !mappedHeaders.areaName) {
+    missing.push("location or fullAddress or areaName");
+  }
+
+  return missing;
 };
 
 const validateRow = ({ row, rowNumber, mappedHeaders }) => {
   const errors = [];
 
-  const mediaCode = String(getCellValue(row, mappedHeaders, "mediaCode") || "")
-    .trim()
-    .toUpperCase();
+  const city = toCleanString(getCellValue(row, mappedHeaders, "city"));
+  const mediaType = toCleanString(getCellValue(row, mappedHeaders, "mediaType"));
 
-  const mediaName = String(getCellValue(row, mappedHeaders, "mediaName") || "").trim();
-  const mediaType = String(getCellValue(row, mappedHeaders, "mediaType") || "").trim();
-  const city = String(getCellValue(row, mappedHeaders, "city") || "").trim();
-  const location = String(getCellValue(row, mappedHeaders, "location") || "").trim();
-  const fullAddress = String(getCellValue(row, mappedHeaders, "fullAddress") || "").trim();
+  const areaName = toCleanString(getCellValue(row, mappedHeaders, "areaName"));
+  const mediaNameFromExcel = toCleanString(getCellValue(row, mappedHeaders, "mediaName"));
+  const locationFromExcel = toCleanString(getCellValue(row, mappedHeaders, "location"));
+  const fullAddressFromExcel = toCleanString(getCellValue(row, mappedHeaders, "fullAddress"));
 
   const widthFt = toNumber(getCellValue(row, mappedHeaders, "widthFt"));
   const heightFt = toNumber(getCellValue(row, mappedHeaders, "heightFt"));
@@ -95,7 +202,29 @@ const validateRow = ({ row, rowNumber, mappedHeaders }) => {
   const statusFromExcel = getCellValue(row, mappedHeaders, "status");
   const status = normalizeStatus(statusFromExcel);
 
-  if (!mediaCode) errors.push("mediaCode is required");
+  const rawMediaCode = getCellValue(row, mappedHeaders, "mediaCode");
+
+  const mediaCode = buildMediaCode({
+    rawMediaCode,
+    city,
+    mediaType,
+    rowNumber
+  });
+
+  let mediaName = mediaNameFromExcel || areaName || `${city} ${mediaType}`.trim();
+
+  if (
+    mediaName &&
+    mediaType &&
+    !mediaName.toLowerCase().includes(mediaType.toLowerCase())
+  ) {
+    mediaName = `${mediaName} ${mediaType}`;
+  }
+
+  const location = areaName || mediaNameFromExcel || locationFromExcel;
+  const fullAddress = fullAddressFromExcel || locationFromExcel || areaName || location;
+
+  if (!mediaCode) errors.push("mediaCode could not be generated");
   if (!mediaName) errors.push("mediaName is required");
   if (!mediaType) errors.push("mediaType is required");
   if (!city) errors.push("city is required");
@@ -169,9 +298,13 @@ const buildHoardingFilterQuery = ({ city, mediaType, search, status }) => {
       { city: searchRegex },
       { location: searchRegex },
       { fullAddress: searchRegex },
-      { "dynamicFields.landmark": searchRegex },
+      { "dynamicFields.areaName": searchRegex },
       { "dynamicFields.illumination": searchRegex },
-      { "dynamicFields.traffic type": searchRegex },
+      { "dynamicFields.powerSupply": searchRegex },
+      { "dynamicFields.innovations": searchRegex },
+      { "dynamicFields.latitude": searchRegex },
+      { "dynamicFields.longitude": searchRegex },
+      { "dynamicFields.landmark": searchRegex },
       { "dynamicFields.owner name": searchRegex },
       { "dynamicFields.remarks": searchRegex }
     ];
@@ -330,7 +463,7 @@ const bulkUploadHoardings = async (req, res, next) => {
 
       insertPayload.push({
         ...item.normalizedData,
-        dynamicFields: buildDynamicFields(item.row, dynamicHeaders),
+        dynamicFields: buildDynamicFields(item.row, mappedHeaders, dynamicHeaders),
         originalExcelRow: item.row,
         source: "excel_upload",
         uploadBatchId: uploadBatch._id,
@@ -408,6 +541,7 @@ const bulkUploadHoardings = async (req, res, next) => {
     next(error);
   } finally {
     if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      // Keep this commented during debugging.
       // fs.unlinkSync(req.file.path);
     }
   }
@@ -430,14 +564,6 @@ const getHoardingList = async (req, res, next) => {
     const requestedHoardingId =
       req.params.hoardingId || hoardingId || id || objectId;
 
-    /*
-      If object id is passed, return only that particular hoarding full details.
-      Supported:
-      GET /api/hoardings/list/:hoardingId
-      GET /api/hoardings/list?hoardingId=xxx
-      GET /api/hoardings/list?id=xxx
-      GET /api/hoardings/list?objectId=xxx
-    */
     if (requestedHoardingId) {
       if (!mongoose.Types.ObjectId.isValid(requestedHoardingId)) {
         return errorResponse(
@@ -473,9 +599,6 @@ const getHoardingList = async (req, res, next) => {
       );
     }
 
-    /*
-      Normal listing flow
-    */
     const pageNumber = Math.max(Number(page) || 1, 1);
     const limitNumber = Math.min(Math.max(Number(limit) || 10, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
@@ -491,15 +614,6 @@ const getHoardingList = async (req, res, next) => {
       );
     }
 
-    /*
-      Important:
-      baseQuery should NOT include active/inactive status.
-      It should include only city, mediaType, search filters.
-      So summary counts remain same for:
-      - status=all
-      - status=active
-      - status=inactive
-    */
     const baseQuery = buildHoardingFilterQuery({
       city,
       mediaType,
@@ -517,16 +631,6 @@ const getHoardingList = async (req, res, next) => {
       status: "inactive"
     };
 
-    /*
-      Always calculate total counts.
-      This fixes:
-      /api/hoardings/list?status=active&page=1&limit=10
-
-      Summary will still show:
-      totalRecords: 96
-      activeTotal: 93
-      inactiveTotal: 3
-    */
     const [activeTotal, inactiveTotal] = await Promise.all([
       Hoarding.countDocuments(activeQuery),
       Hoarding.countDocuments(inactiveQuery)
@@ -535,12 +639,6 @@ const getHoardingList = async (req, res, next) => {
     let activeItems = [];
     let inactiveItems = [];
 
-    /*
-      Fetch list items based on selected status only.
-      - all: fetch active + inactive
-      - active: fetch active only
-      - inactive: fetch inactive only
-    */
     if (normalizedStatus === "all" || normalizedStatus === "active") {
       activeItems = await Hoarding.find(activeQuery)
         .sort({ createdAt: -1 })
@@ -559,23 +657,13 @@ const getHoardingList = async (req, res, next) => {
 
     const totalRecords = activeTotal + inactiveTotal;
 
-    /*
-      These are page-wise possible returned counts for summary.
-      This keeps summary same even when status=active/inactive.
-      Example:
-      activeTotal = 93, inactiveTotal = 3, page=1, limit=10
-      activeReturned = 10
-      inactiveReturned = 3
-    */
-    const activeReturned = Math.max(
-      Math.min(activeTotal - skip, limitNumber),
-      0
-    );
+    const activeReturned = normalizedStatus === "inactive"
+      ? 0
+      : activeItems.length;
 
-    const inactiveReturned = Math.max(
-      Math.min(inactiveTotal - skip, limitNumber),
-      0
-    );
+    const inactiveReturned = normalizedStatus === "active"
+      ? 0
+      : inactiveItems.length;
 
     return successResponse(
       res,

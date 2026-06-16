@@ -275,6 +275,41 @@ const getCampaignProofs = async (req, res, next) => {
         },
       ];
     }
+    /////////////////add dashboard data/////////////////////////
+    const todayDate = getTodayDateInIST();
+    const { startDate: todayStartDate, endDate: todayEndDate } =
+      getISTDateRange(todayDate);
+
+    const [
+      overallCapturedImagesToday,
+      sitesUpdatedTodayIds,
+      overallSitesCount,
+    ] = await Promise.all([
+      Proof.countDocuments({
+        capturedAt: {
+          $gte: todayStartDate,
+          $lte: todayEndDate,
+        },
+      }),
+
+      Proof.distinct("hoardingId", {
+        capturedAt: {
+          $gte: todayStartDate,
+          $lte: todayEndDate,
+        },
+        hoardingId: { $ne: null },
+      }),
+
+      Hoarding.countDocuments({}),
+    ]);
+
+    const sitesUpdatedTodayCount =
+      overallSitesCount === 0
+        ? 0
+        : overallSitesCount && Array.isArray(sitesUpdatedTodayIds)
+          ? sitesUpdatedTodayIds.length
+          : 0;
+    //////////////////add dashboard data////////////////////////
 
     return successResponse(
       res,
@@ -284,6 +319,13 @@ const getCampaignProofs = async (req, res, next) => {
         hoardingId: hoardingId || null,
         totalHoardings: hoardingDetails.length,
         totalProofImages: proofs.length,
+        overallSummary: {
+          todayDate,
+          overallCapturedImagesToday,
+          sitesUpdatedTodayCount,
+          overallSitesCount,
+        },
+
         hoardingDetails,
       },
       200,

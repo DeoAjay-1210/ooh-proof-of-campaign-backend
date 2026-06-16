@@ -12,13 +12,57 @@ const isValidEmail = (email) => {
   return /^\S+@\S+\.\S+$/.test(String(email).trim().toLowerCase());
 };
 
+const cleanName = (value) => {
+  return String(value || "").trim();
+};
+
+const cleanMobile = (value) => {
+  return String(value || "").trim();
+};
+
+const cleanEmail = (value) => {
+  return value ? String(value).trim().toLowerCase() : "";
+};
+
+/*
+  Important login timestamp rule:
+
+  The dashboard should show the user's previous login timestamp,
+  not the timestamp of the login that is happening right now.
+
+  So we maintain two fields:
+  - lastLoginAt: previous successful login timestamp shown in profile/dashboard.
+  - currentLoginAt: current successful login timestamp stored for the next login.
+
+  Backward compatibility:
+  If old users already have only lastLoginAt from the older implementation,
+  the first login after this update will use that old lastLoginAt as the
+  previous login snapshot, then save the new login time into currentLoginAt.
+*/
+const applyClientLoginSnapshot = async (client) => {
+  const now = new Date();
+
+  const previousLoginSnapshot =
+    client.currentLoginAt || client.lastLoginAt || null;
+
+  client.lastLoginAt = previousLoginSnapshot;
+  client.currentLoginAt = now;
+
+  await client.save();
+
+  return {
+    previousLoginSnapshot,
+    currentLoginAt: now
+  };
+};
+
 const sendClientRegisterOtp = async (req, res, next) => {
   try {
     const { fullName, mobileNumber, email } = req.body;
 
-    const cleanedFullName = String(fullName || "").trim();
-    const cleanedMobileNumber = String(mobileNumber || "").trim();
-    const cleanedEmail = email ? String(email).trim().toLowerCase() : "";
+    const cleanedFullName = cleanName(fullName);
+    const cleanedMobileNumber = cleanMobile(mobileNumber);
+    const cleanedEmail = cleanEmail(email);
 
     if (!cleanedFullName || !cleanedMobileNumber) {
       return errorResponse(
@@ -108,7 +152,7 @@ const verifyClientRegisterOtp = async (req, res, next) => {
   try {
     const { mobileNumber, otp } = req.body;
 
-    const cleanedMobileNumber = String(mobileNumber || "").trim();
+    const cleanedMobileNumber = cleanMobile(mobileNumber);
     const cleanedOtp = String(otp || "").trim();
 
     if (!cleanedMobileNumber || !cleanedOtp) {
@@ -162,8 +206,8 @@ const verifyClientRegisterOtp = async (req, res, next) => {
     }
 
     const metadata = otpResult.metadata || {};
-    const fullName = String(metadata.fullName || "").trim();
-    const email = metadata.email ? String(metadata.email).trim().toLowerCase() : "";
+    const fullName = cleanName(metadata.fullName);
+    const email = cleanEmail(metadata.email);
 
     if (!fullName) {
       return errorResponse(
@@ -187,16 +231,19 @@ const verifyClientRegisterOtp = async (req, res, next) => {
       }
     }
 
+    /*
+      New registration means there is no previous login yet.
+      Store currentLoginAt only. lastLoginAt remains null.
+    */
     const client = await User.create({
       fullName,
       mobileNumber: cleanedMobileNumber,
       email,
       userType: "client",
-      status: "active"
+      status: "active",
+      lastLoginAt: null,
+      currentLoginAt: new Date()
     });
-
-    client.lastLoginAt = new Date();
-    await client.save();
 
     return successResponse(
       res,
@@ -216,7 +263,7 @@ const sendClientLoginOtp = async (req, res, next) => {
   try {
     const { mobileNumber } = req.body;
 
-    const cleanedMobileNumber = String(mobileNumber || "").trim();
+    const cleanedMobileNumber = cleanMobile(mobileNumber);
 
     if (!cleanedMobileNumber) {
       return errorResponse(
@@ -279,7 +326,7 @@ const verifyClientLoginOtp = async (req, res, next) => {
   try {
     const { mobileNumber, otp } = req.body;
 
-    const cleanedMobileNumber = String(mobileNumber || "").trim();
+    const cleanedMobileNumber = cleanMobile(mobileNumber);
     const cleanedOtp = String(otp || "").trim();
 
     if (!cleanedMobileNumber || !cleanedOtp) {
@@ -333,8 +380,7 @@ const verifyClientLoginOtp = async (req, res, next) => {
       return errorResponse(res, otpResult.message, null, 400);
     }
 
-    client.lastLoginAt = new Date();
-    await client.save();
+    await applyClientLoginSnapshot(client);
 
     return successResponse(
       res,
