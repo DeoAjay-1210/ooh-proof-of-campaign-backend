@@ -21,7 +21,9 @@ const isValidLongitude = (value) => {
 const uploadHoardingProof = async (req, res, next) => {
   try {
     const { hoardingId } = req.params;
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, address } = req.body;
+
+    const cleanedAddress = String(address || "").trim();
 
     if (!mongoose.Types.ObjectId.isValid(hoardingId)) {
       return errorResponse(res, "Invalid hoarding id", null, 400);
@@ -44,6 +46,15 @@ const uploadHoardingProof = async (req, res, next) => {
       return errorResponse(res, "Valid longitude is required", null, 400);
     }
 
+    if (cleanedAddress && cleanedAddress.length > 500) {
+      return errorResponse(
+        res,
+        "Address should not exceed 500 characters",
+        null,
+        400,
+      );
+    }
+
     const hoarding = await Hoarding.findById(hoardingId);
 
     if (!hoarding) {
@@ -61,6 +72,7 @@ const uploadHoardingProof = async (req, res, next) => {
       cloudKey: uploadedImage.cloudKey,
       latitude: Number(latitude),
       longitude: Number(longitude),
+      address: cleanedAddress || "",
       capturedAt: new Date(),
       uploadedBy: req.user._id,
       uploadedByType: req.user.userType,
@@ -76,6 +88,7 @@ const uploadHoardingProof = async (req, res, next) => {
           imageUrl: proof.imageUrl,
           latitude: proof.latitude,
           longitude: proof.longitude,
+          address: proof.address,
           capturedAt: proof.capturedAt,
           uploadedBy: {
             id: req.user._id,

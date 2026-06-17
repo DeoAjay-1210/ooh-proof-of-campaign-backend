@@ -43,7 +43,7 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
       Register and login flows both call only this function.
       This function handles real SMS in production and testing OTP in non-production.
     */
-   console.log("sdfdsf");
+   
     await sendOtpSms({ mobileNumber, otp });
   } catch (error) {
     /*
