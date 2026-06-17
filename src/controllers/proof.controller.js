@@ -251,6 +251,7 @@ const getCampaignProofs = async (req, res, next) => {
         imageUrl: proof.imageUrl,
         latitude: proof.latitude,
         longitude: proof.longitude,
+        address: proof.address || "",
         capturedAt: proof.capturedAt,
         capturedDate: selectedDate,
         capturedTime: formatTimeInIST(proof.capturedAt),
