@@ -40,7 +40,7 @@ const buildOtpMessage = ({ otp }) => {
       .replace(/#OTP#/g, otp);
   }
 
-  return `Welcome to Adinn Outdoors! Your verification code is ${otp}. Use this OTP to complete your verification. Please don’t share it with anyone.`;
+  return `Welcome to Adinn Outdoors! Your verification code is ${otp}. Use this OTP to complete your verification. Please don't share it with anyone.`;
 };
 
 const requestUrl = (url) => {
