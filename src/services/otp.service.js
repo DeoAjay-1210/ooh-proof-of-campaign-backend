@@ -43,8 +43,12 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
       Register and login flows both call only this function.
       This function handles real SMS in production and testing OTP in non-production.
     */
+
+      if(process.env.MESSAGE_SEND == "true")
+      {
+        await sendOtpSms({ mobileNumber, otp });
+      }
    
-    await sendOtpSms({ mobileNumber, otp });
   } catch (error) {
     /*
       If SMS fails in production, do not leave a usable OTP in database.
@@ -57,7 +61,8 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
   }
 
   const response = {
-    expiresInMinutes: expiryMinutes
+    expiresInMinutes: expiryMinutes,
+    otpForTesting : otp
   };
 
   if (!isProduction()) {
