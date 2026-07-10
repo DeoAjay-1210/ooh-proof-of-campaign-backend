@@ -62,7 +62,7 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
 
   const response = {
     expiresInMinutes: expiryMinutes,
-    otpForTesting : otp
+    
   };
 
   if (!isProduction()) {
