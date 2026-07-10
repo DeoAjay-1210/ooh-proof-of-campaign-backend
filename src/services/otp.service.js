@@ -44,7 +44,7 @@ const createAndSendOtp = async ({ mobileNumber, userType, metadata = {} }) => {
       This function handles real SMS in production and testing OTP in non-production.
     */
 
-      if(process.env.MESSAGE_SEND == "true" && userType =="client")
+      if(process.env.MESSAGE_SEND == "true")
       {
         await sendOtpSms({ mobileNumber, otp });
       }
